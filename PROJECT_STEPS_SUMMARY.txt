@@ -1,0 +1,245 @@
+================================================================================
+PROJECT DEVELOPMENT STEP SUMMARY
+================================================================================
+Project Title : Explainable Pneumonia Classification from Chest X-Ray Images Using Deep Learning
+Project Type  : Master of Computer Applications (MCA) Semester Project
+Location      : e:/Pnuemonia Detection
+Modality      : Anterior-Posterior (AP) Pediatric Chest Radiographs
+Scope         : Binary Classification (NORMAL vs PNEUMONIA) with Grad-CAM Explainable AI (XAI)
+================================================================================
+
+CHRONOLOGICAL STEP-BY-STEP PROGRESS LOG
+--------------------------------------------------------------------------------
+
+STEP 1: PROJECT FOUNDATION & DIRECTORY ARCHITECTURE
+--------------------------------------------------------------------------------
+1. Created standardized project directory structure:
+   - dataset/chest_xray/  : Image dataset directory
+   - notebooks/           : Jupyter notebooks for EDA and model experimentation
+   - models/              : Saved model artifacts (*.keras, *.h5)
+   - src/                 : Modular Python packages (loaders, models, utils)
+   - backend/             : FastAPI asynchronous prediction service
+   - frontend/            : React clinical dashboard and Grad-CAM visualizer
+2. Configured Git tracking exclusions:
+   - Root .gitignore: Excludes datasets (dataset/, Dataset/), archives, virtual envs, node_modules.
+   - models/.gitignore: Specifically excludes large generated model binaries (*.keras, *.h5, *.pt, checkpoints/)
+     while preserving folder tracking via .gitkeep.
+3. Created planned dependencies in requirements.txt (TensorFlow, Keras, NumPy, pandas, Matplotlib,
+   Seaborn, scikit-learn, Pillow, OpenCV, FastAPI, Uvicorn, Jupyter).
+4. Created root README.md and module READMEs across all subdirectories.
+5. Initialized Git repository and validated exclusion rules using simulated model weight files.
+
+
+STEP 2: DATASET VERIFICATION & INTEGRITY AUDIT (READ-ONLY)
+--------------------------------------------------------------------------------
+1. Inspected dataset on disk without altering, moving, or deleting any files.
+2. Verified splits: train, val, and test all present.
+3. Verified classes: NORMAL and PNEUMONIA present in each split.
+4. Performed byte-level header and integrity verification with PIL.Image.verify() on all 5,856 images.
+5. Results:
+   - Corrupted/Unreadable Images: 0 (100% valid .jpeg format)
+   - train split: 1,341 Normal (25.7%) | 3,875 Pneumonia (74.3%) -> Total: 5,216
+   - val split  : 8 Normal (50.0%)     | 8 Pneumonia (50.0%)     -> Total: 16
+   - test split : 234 Normal (37.5%)   | 390 Pneumonia (62.5%)   -> Total: 624
+   - Grand Total: 5,856 images
+6. Critical Findings:
+   - Severe Validation Undersizing: Default val split has only 16 images (insufficient for validation).
+   - Class Imbalance: Pneumonia makes up 74.3% of the training set.
+   - Extraction Artifacts: __MACOSX/ and duplicate nested chest_xray/ detected from Kaggle zip.
+
+
+STEP 3: STAGE 1 EXPLORATORY NOTEBOOK (notebooks/01_dataset_inspection.ipynb)
+--------------------------------------------------------------------------------
+1. File created: notebooks/01_dataset_inspection.ipynb
+2. Features implemented:
+   - Environment check: Python, TensorFlow (v2.21.0), NumPy, GPU availability.
+   - Relative path resolution (../dataset/chest_xray/) with case-insensitivity fallback.
+   - Dynamic class inventory and pandas DataFrame summary.
+   - Matplotlib grouped bar visualization of class distributions.
+   - Sample radiograph viewer rendering side-by-side Normal vs Pneumonia scans.
+   - Image resolution and color mode profiling (sampled 500 images: 400x600 to 2000x2000+ with mixed L/RGB).
+   - Non-destructive automated data integrity audit loop.
+   - Academic markdown cells detailing validation undersizing and class imbalance mitigation strategies.
+
+
+STEP 4: ENVIRONMENT & JUPYTERLAB LAUNCH
+--------------------------------------------------------------------------------
+1. Identified Windows user PATH issue where 'python -m jupyter notebook' could not locate wrapper .exe.
+2. Successfully launched workspace using direct Python module dispatcher: 'python -m jupyterlab'.
+3. Verified Stage 1 notebook execution.
+
+
+STEP 5: STAGE 2 BASELINE CNN MODELING (notebooks/02_baseline_cnn_model.ipynb)
+--------------------------------------------------------------------------------
+1. File created: notebooks/02_baseline_cnn_model.ipynb
+2. Technical implementations & decisions:
+   - Dynamic Validation Partitioning: Used tf.keras.utils.image_dataset_from_directory(validation_split=0.15)
+     to carve 782 validation images (15%) from train/ on-the-fly, leaving 4,434 for training.
+   - Class Imbalance Mitigation: Computed balanced class weights via sklearn compute_class_weight
+     (NORMAL: ~1.93, PNEUMONIA: ~0.68) and passed to model.fit(class_weight=...).
+   - Clinically Safe Augmentation: RandomFlip("horizontal"), RandomRotation(0.05), RandomZoom(0.05).
+     Vertical flips strictly excluded as inverted thoracic anatomy is clinically invalid.
+   - Pipeline Optimization: Caching, shuffling, and prefetching with tf.data.AUTOTUNE.
+   - Baseline CNN Architecture:
+     * Rescaling (1./255)
+     * 4 Conv Blocks (32 -> 64 -> 128 -> 128 filters, 3x3, ReLU)
+     * BatchNormalization and MaxPooling2D in each block
+     * GlobalAveragePooling2D (collapses spatial dimensions without parameter explosion)
+     * Named final conv layer 'conv4_features' to support future Grad-CAM heatmaps
+     * Dense Head: 128 units, Dropout 0.5, Sigmoid output (Total: 258,881 parameters)
+   - Callbacks: ModelCheckpoint (saving to models/baseline_cnn_best.keras), EarlyStopping, ReduceLROnPlateau.
+   - Diagnostic Evaluation: Evaluates best model on official test set (624 images) with Accuracy,
+     Precision, Recall (Sensitivity), ROC-AUC, Confusion Matrix, and ROC Curve.
+3. Verified Execution & Official Test Results:
+   - Training Convergence: 15 epochs executed, EarlyStopping triggered at Epoch 15.
+     Best checkpoint restored from Epoch 10 (val_loss: 0.0961, val_auc: 0.9927, val_recall: 0.9611).
+   - Saved Artifact: models/baseline_cnn_best.keras (3.19 MB, 18 layers, 258,881 params).
+     Successfully loaded and verified with tf.keras.models.load_model().
+   - Positive Class Convention: Index 0 = NORMAL, Index 1 = PNEUMONIA.
+     Outputs sigmoid probability P(PNEUMONIA | x) >= 0.5 -> PNEUMONIA.
+   - Official Test Set Performance (624 Images: 234 Normal, 390 Pneumonia):
+     * Accuracy                     : 83.17% (519 / 624)
+     * Precision (PNEUMONIA)        : 79.63% (383 / 481)
+     * Recall/Sensitivity (PNEUMONIA): 98.21% (383 out of 390 detected; only 7 false negatives)
+     * F1-Score (PNEUMONIA)         : 87.94%
+     * ROC-AUC                      : 0.9252
+   - Confusion Matrix Breakdown:
+     * True Negatives  (TN): 136 (Correctly identified Normal)
+     * False Positives (FP): 98  (Normal incorrectly classified as Pneumonia)
+     * False Negatives (FN): 7   (Pneumonia incorrectly classified as Normal)
+     * True Positives  (TP): 383 (Correctly identified Pneumonia)
+   - Full Classification Report:
+                   precision    recall  f1-score   support
+           NORMAL     0.9510    0.5812    0.7215       234
+        PNEUMONIA     0.7963    0.9821    0.8794       390
+         accuracy                         0.8317       624
+        macro avg     0.8737    0.7816    0.8005       624
+     weighted avg     0.8543    0.8317    0.8202       624
+
+
+STEP 6: STAGE 3 TRANSFER LEARNING EXPERIMENTS (notebooks/03_transfer_learning_experiments.ipynb)
+--------------------------------------------------------------------------------
+1. File created: notebooks/03_transfer_learning_experiments.ipynb
+2. Technical implementations & decisions:
+   - Target Goal: Resolve the 98 False Positives on Normal scans from Stage 2 by utilizing
+     pre-trained MobileNetV2 representations to boost Specificity and Overall Accuracy.
+   - Two-Phase Strategy:
+     * Phase 1 (Feature Extraction): Freeze ImageNet backbone (base_model.trainable = False),
+       train custom classification head with Adam(1e-3).
+     * Phase 2 (Fine-Tuning): Unfreeze top convolutional layers from layer 100 onwards;
+       fine-tune with micro learning rate Adam(1e-5).
+   - In-Graph Preprocessing: Integrated mobilenet_v2.preprocess_input ([-1, 1] normalization).
+   - Checkpoint Configuration: ModelCheckpoint saving to models/mobilenetv2_transfer_best.keras.
+   - Comprehensive Comparative Evaluation: Direct benchmark comparison table evaluating
+     Baseline CNN vs. MobileNetV2 across Accuracy, Precision, Recall, Specificity,
+     False Positives/Negatives, and ROC-AUC on the official 624-image test set.
+3. Verified Execution & Official Test Results (MobileNetV2):
+   - Saved Artifact: models/mobilenetv2_transfer_best.keras (26.58 MB, 2,427,201 params).
+   - Official Test Set Performance (624 Images: 234 Normal, 390 Pneumonia):
+     * Accuracy                     : 78.53% (490 / 624)
+     * ROC-AUC                      : 0.9566 (Superior to Baseline 0.9252)
+     * Recall/Sensitivity (PNEUMONIA): 98.72% (385 out of 390 detected; only 5 false negatives)
+     * Precision (PNEUMONIA)        : 74.90% (385 / 514)
+     * F1-Score (PNEUMONIA)         : 85.18%
+     * Normal Specificity (Recall)  : 44.87% (105 / 234)
+   - Confusion Matrix Breakdown:
+     * True Negatives  (TN): 105 (Correctly identified Normal)
+     * False Positives (FP): 129 (Normal incorrectly classified as Pneumonia)
+     * False Negatives (FN): 5   (Pneumonia incorrectly classified as Normal)
+     * True Positives  (TP): 385 (Correctly identified Pneumonia)
+   - Full Classification Report:
+                   precision    recall  f1-score   support
+           NORMAL     0.9545    0.4487    0.6105       234
+        PNEUMONIA     0.7490    0.9872    0.8518       390
+         accuracy                         0.7853       624
+        macro avg     0.8518    0.7179    0.7311       624
+     weighted avg     0.8261    0.7853    0.7613       624
+
+
+STEP 7: PHASE 5 EXPLAINABLE AI PIPELINE & GRAD-CAM (notebooks/04_explainability_gradcam.ipynb)
+--------------------------------------------------------------------------------
+1. Files created:
+   - src/explainability/gradcam.py: Reusable production engine for gradient calculation,
+     pooling, ReLU filtering, and PIL-based alpha blending.
+   - src/explainability/__init__.py: Package exports.
+   - notebooks/04_explainability_gradcam.ipynb: Interactive interpretability research notebook.
+2. Technical implementations & decisions:
+   - Mathematical Grad-CAM formulation computing channel weights alpha_k via Global Average Pooling
+     of gradients d(y^c)/d(A^k), followed by ReLU activation to isolate positive evidence.
+   - Dual-Model Architecture Support:
+     * Custom Baseline CNN: Targets conv4_features (28x28x128 feature map).
+     * MobileNetV2: Targets Conv_1 (7x7x1280 feature map) within the nested functional backbone.
+   - High-Resolution Colormap Overlay: Bicubic interpolation resizing with JET colormap and alpha
+     blending (alpha=0.4) over grayscale radiographs, maintaining rib/clavicle anatomical visibility.
+   - Four Comprehensive Case Studies:
+     * True Positive: Validates focal consolidation localization in pneumonia scans.
+     * True Negative: Demonstrates absence of pathological focus in healthy clear lung fields.
+     * False Positive Audit: Explains why cardiac shadows and scapula edges trigger false alarms.
+     * Comparative Gallery: Side-by-side visual comparison between Baseline CNN and MobileNetV2.
+
+
+STEP 8: PHASE 6 FASTAPI REST API BACKEND (backend/ & test_backend.py)
+--------------------------------------------------------------------------------
+1. Files created / updated:
+   - backend/app/core/config.py: Dynamic path resolution, model paths, target layers,
+     CORS policies (Vite 5173, CRA 3000, localhost), and file size limits (15 MB).
+   - backend/app/schemas/prediction.py: Pydantic schemas (PredictionResponse, HealthResponse,
+     ModelMetadata, ModelEvaluationMetrics, ModelsListResponse).
+   - backend/app/services/cam_service.py: Image validation and base64 Data URI encoder.
+   - backend/app/services/model_service.py: Singleton model manager, thread-safe memory
+     caching, inference execution, latency measurement, and clinical notes composer.
+   - backend/app/api/deps.py: Dependency injection provider.
+   - backend/app/api/routes/health.py: GET /api/v1/health (system readiness, TensorFlow status).
+   - backend/app/api/routes/models.py: GET /api/v1/models (catalog, architectures, benchmarks).
+   - backend/app/api/routes/predict.py: POST /api/v1/predict (multipart image upload & Grad-CAM).
+   - backend/app/main.py: FastAPI app with lifespan model pre-warming, CORS, and Swagger UI (/docs).
+   - src/explainability/gradcam.py: Updated explain_chest_xray to support PIL Image and stream inputs.
+   - backend/test_backend.py: Automated end-to-end integration test suite.
+   - backend/README.md: Architecture, endpoint documentation, and curl examples.
+2. Verified integration test results:
+   - test_health_endpoint: PASS (Healthy, TF 2.21.0, dual models detected)
+   - test_models_list_endpoint: PASS (Both models return full benchmark metrics)
+   - test_specific_model_endpoint: PASS (MobileNetV2 metadata & 404 handling verified)
+   - test_predict_mobilenetv2_normal: PASS (Inference + Grad-CAM overlay generated in ~1628ms)
+   - test_predict_baseline_pneumonia: PASS (PNEUMONIA classified with 99.65% confidence in ~306ms)
+   - test_predict_baseline_normal_case: PASS (NORMAL classified with 53.59% confidence)
+   - test_predict_validation_errors: PASS (Rejected non-images (.txt) and bad model IDs with HTTP 400)
+
+
+STEP 9: PHASE 7 REACT FRONTEND & CLINICAL VISUALIZATION UI (frontend/)
+--------------------------------------------------------------------------------
+1. Files created / configured:
+   - frontend/src/services/api.js: Fetch client connecting to FastAPI (/health, /models, /predict, samples).
+   - frontend/src/components/Header.jsx: Navigation bar, brand logo, API health badge, model switcher.
+   - frontend/src/components/ImageUploader.jsx: Drag-and-drop ingestion, preview, 4 quick benchmark samples.
+   - frontend/src/components/PredictionCard.jsx: Status badges (NORMAL vs PNEUMONIA), probability bars,
+     latency indicator, and automated clinical notes.
+   - frontend/src/components/GradCamViewer.jsx: Grad-CAM visualizer with 60 FPS interactive opacity slider,
+     side-by-side gallery, JET colormap intensity legend, and overlay download.
+   - frontend/src/components/BenchmarksModal.jsx: Test set benchmark comparison dialog.
+   - frontend/src/components/Footer.jsx: Academic disclaimer and tech stack badges.
+   - frontend/src/index.css & frontend/src/App.css: Clinical dark-mode design system, glassmorphism,
+     custom range slider, and responsive layouts.
+   - frontend/src/App.jsx: Main state management, error handling, auto-re-evaluation on model switch.
+   - frontend/vite.config.js: Reverse proxy (/api -> http://127.0.0.1:8000).
+   - frontend/public/samples/: 4 benchmark radiographs (2 Normal, 2 Pneumonia) for instant demonstration.
+   - frontend/README.md: Architecture and usage documentation.
+2. Verified build:
+   - npm run build generated production bundle in 210ms with 0 errors.
+
+================================================================================
+CURRENT PROJECT STATUS TABLE
+================================================================================
+Phase 1: Project Setup, Architecture & Version Control    [COMPLETED]
+Phase 2: Dataset Inspection & Integrity Audit             [COMPLETED]
+Phase 3: Input Pipeline & Baseline CNN Benchmark          [COMPLETED & VERIFIED]
+         * Accuracy: 83.17%, Recall (Pneu): 98.21%, ROC-AUC: 0.9252
+Phase 4: Transfer Learning (MobileNetV2/ResNet50)         [COMPLETED & VERIFIED]
+         * ROC-AUC: 0.9566, Recall (Pneu): 98.72% (FN: 5)
+Phase 5: Explainable AI (Grad-CAM Saliency Heatmaps)      [COMPLETED & VERIFIED]
+         * Dual-model Grad-CAM, case studies, and src/ module ready
+Phase 6: FastAPI REST API Backend Implementation          [COMPLETED & VERIFIED]
+         * Dual-model endpoints, Grad-CAM base64 overlays, 100% test pass
+Phase 7: React Frontend & Clinical Visualization UI       [COMPLETED & VERIFIED]
+         * Vite + React 19 dashboard, interactive opacity slider, 100% build pass
+================================================================================

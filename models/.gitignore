@@ -1,0 +1,5 @@
+# Ignore all model weight artifacts in this directory
+*
+!.gitignore
+!.gitkeep
+!README.md
