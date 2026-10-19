@@ -6,7 +6,7 @@ import GradCamViewer from './components/GradCamViewer';
 import BenchmarksModal from './components/BenchmarksModal';
 import Footer from './components/Footer';
 import { fetchHealth, fetchModels, predictImage, loadSampleFile } from './services/api';
-import { Activity, Layers, AlertCircle, X } from 'lucide-react';
+import { Layers, AlertCircle, X } from 'lucide-react';
 import './App.css';
 
 export default function App() {

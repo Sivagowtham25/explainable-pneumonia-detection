@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Award, ShieldAlert, Cpu, Check, Layers, BarChart } from 'lucide-react';
+import { X, ShieldAlert, BarChart } from 'lucide-react';
 
 export default function BenchmarksModal({ isOpen, onClose }) {
   if (!isOpen) return null;

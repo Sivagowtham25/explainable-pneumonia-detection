@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { Layers, Sliders, Columns, Download, Eye, ZoomIn, Info } from 'lucide-react';
+import { Layers, Sliders, Columns, Download, Info } from 'lucide-react';
 
 export default function GradCamViewer({ result }) {
   const [viewMode, setViewMode] = useState('overlay'); // 'overlay' or 'side-by-side'
   const [interactiveAlpha, setInteractiveAlpha] = useState(0.4);
-  const [activeTab, setActiveTab] = useState('blended'); // for mobile/compact tabs
 
   if (!result || !result.gradcam_generated) return null;
 

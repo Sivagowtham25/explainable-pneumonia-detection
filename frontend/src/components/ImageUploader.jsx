@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, Image as ImageIcon, Sparkles, X, CheckCircle, FileText } from 'lucide-react';
+import { UploadCloud, Sparkles, X, FileText } from 'lucide-react';
 
 export default function ImageUploader({
   selectedFile,

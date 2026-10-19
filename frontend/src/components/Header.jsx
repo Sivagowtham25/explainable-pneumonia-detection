@@ -1,9 +1,8 @@
 import React from 'react';
-import { Activity, ShieldCheck, Cpu, BarChart2, AlertCircle } from 'lucide-react';
+import { Activity, Cpu, BarChart2 } from 'lucide-react';
 
 export default function Header({
   health,
-  models,
   selectedModel,
   onSelectModel,
   onOpenBenchmarks,

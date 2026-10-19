@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, Code, Heart, ShieldAlert } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 
 export default function Footer() {
   return (

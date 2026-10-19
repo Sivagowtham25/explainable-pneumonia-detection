@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Clock, Layers, HelpCircle, Activity } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, HelpCircle, Activity } from 'lucide-react';
 
 export default function PredictionCard({ result }) {
   if (!result) return null;
