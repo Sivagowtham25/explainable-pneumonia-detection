@@ -12,47 +12,80 @@ from azure.identity import ManagedIdentityCredential
 from azure.storage.blob import BlobServiceClient
 
 
+# ==========================================================
+# Azure Functions application
+# ==========================================================
+
 app = func.FunctionApp(
     http_auth_level=func.AuthLevel.ANONYMOUS
 )
 
-# --------------------------------------------------
+
+# ==========================================================
 # Configuration
-# --------------------------------------------------
-
-STORAGE_ACCOUNT = os.environ["AZURE_STORAGE_ACCOUNT"]
-MODEL_CONTAINER = os.environ["MODEL_CONTAINER"]
-
-CUSTOM_CNN_BLOB = os.environ["CUSTOM_CNN_BLOB"]
-MOBILENET_BLOB = os.environ["MOBILENET_BLOB"]
-
-MODEL_BLOBS = {
-    "custom_cnn": CUSTOM_CNN_BLOB,
-    "mobilenetv2": MOBILENET_BLOB,
-}
+# ==========================================================
 
 CLASS_NAMES = ["NORMAL", "PNEUMONIA"]
 IMAGE_SIZE = (224, 224)
+PREDICTION_THRESHOLD = 0.5
 
-# Cached in memory for subsequent requests.
+MODEL_BLOBS = {
+    "custom_cnn": "CUSTOM_CNN_BLOB",
+    "mobilenetv2": "MOBILENET_BLOB",
+}
+
+# Cache models and Blob Storage client between invocations.
 _loaded_models = {}
 _blob_service = None
 
 
+def get_required_setting(setting_name: str) -> str:
+    """Read a required environment variable safely."""
+
+    value = os.environ.get(setting_name, "").strip()
+
+    if not value:
+        raise RuntimeError(
+            f"Required application setting '{setting_name}' is missing."
+        )
+
+    return value
+
+
+def get_model_blob_name(model_key: str) -> str:
+    """Return the configured Blob Storage filename for a model."""
+
+    if model_key not in MODEL_BLOBS:
+        raise ValueError("Unsupported model selection.")
+
+    setting_name = MODEL_BLOBS[model_key]
+
+    return get_required_setting(setting_name)
+
+
+# ==========================================================
+# Azure Blob Storage
+# ==========================================================
+
 def get_blob_service():
     """Create a Blob Storage client using managed identity."""
+
     global _blob_service
 
     if _blob_service is None:
-        account = STORAGE_ACCOUNT.strip().rstrip("/")
+        storage_account = get_required_setting(
+            "AZURE_STORAGE_ACCOUNT"
+        )
 
-        if account.startswith("https://"):
-            account_url = account
+        # Accept either an account name or a complete account URL.
+        if storage_account.startswith("https://"):
+            account_url = storage_account.rstrip("/")
         else:
             account_url = (
-                f"https://{account}.blob.core.windows.net"
+                f"https://{storage_account}.blob.core.windows.net"
             )
 
+        # Uses the Function App's system-assigned managed identity.
         credential = ManagedIdentityCredential()
 
         _blob_service = BlobServiceClient(
@@ -63,22 +96,27 @@ def get_blob_service():
     return _blob_service
 
 
-def load_model(model_key):
-    """Download a model from Blob Storage and cache it."""
+# ==========================================================
+# Model loading
+# ==========================================================
+
+def load_model(model_key: str):
+    """Download a Keras model from Blob Storage and cache it."""
+
     if model_key not in MODEL_BLOBS:
         raise ValueError("Unsupported model selection.")
 
     if model_key not in _loaded_models:
-        blob_name = MODEL_BLOBS[model_key]
+        model_container = get_required_setting("MODEL_CONTAINER")
+        blob_name = get_model_blob_name(model_key)
 
         logging.info(
-            "Loading model '%s' from blob '%s'.",
+            "Loading model '%s' from Blob Storage.",
             model_key,
-            blob_name,
         )
 
         blob_client = get_blob_service().get_blob_client(
-            container=MODEL_CONTAINER,
+            container=model_container,
             blob=blob_name,
         )
 
@@ -91,72 +129,103 @@ def load_model(model_key):
 
         _loaded_models[model_key] = model
 
-        logging.info("Model '%s' loaded successfully.", model_key)
+        logging.info(
+            "Model '%s' loaded successfully.",
+            model_key,
+        )
 
     return _loaded_models[model_key]
 
 
-# --------------------------------------------------
-# Health endpoint
-# --------------------------------------------------
+# ==========================================================
+# JSON response helper
+# ==========================================================
 
-@app.route(route="health", methods=["GET"])
-def health_check(req: func.HttpRequest) -> func.HttpResponse:
+def json_response(data: dict, status_code: int = 200):
+    """Return a JSON-formatted HTTP response."""
+
     return func.HttpResponse(
-        json.dumps({
-            "status": "success",
-            "application": "PneumoScan AI",
-            "message": "Azure Functions API is running.",
-            "available_models": list(MODEL_BLOBS.keys()),
-        }),
-        status_code=200,
+        body=json.dumps(data),
+        status_code=status_code,
         mimetype="application/json",
     )
 
 
-# --------------------------------------------------
-# Prediction endpoint
-# --------------------------------------------------
+# ==========================================================
+# Health endpoint
+# GET /api/health
+# ==========================================================
 
-@app.route(route="predict", methods=["POST"])
+@app.route(
+    route="health",
+    methods=["GET"],
+)
+def health_check(req: func.HttpRequest) -> func.HttpResponse:
+    """Check whether the API is running."""
+
+    return json_response({
+        "status": "success",
+        "application": "PneumoScan AI",
+        "message": "Azure Functions API is running.",
+        "available_models": list(MODEL_BLOBS.keys()),
+    })
+
+
+# ==========================================================
+# Prediction endpoint
+# POST /api/predict?model=custom_cnn
+# ==========================================================
+
+@app.route(
+    route="predict",
+    methods=["POST"],
+)
 def predict(req: func.HttpRequest) -> func.HttpResponse:
     """
-    Accept raw image bytes.
+    Accept an image through the HTTP request body.
 
     Example:
-      POST /api/predict?model=custom_cnn
+        POST /api/predict?model=custom_cnn
 
-    The request body must contain the image bytes.
-    Set Content-Type to image/jpeg or image/png.
+    Request body:
+        Raw JPEG or PNG image bytes.
+
+    Header:
+        Content-Type: image/jpeg
+        or
+        Content-Type: image/png
     """
 
     try:
+        # --------------------------------------------------
+        # 1. Validate the selected model
+        # --------------------------------------------------
+
         model_key = (
             req.params.get("model") or "custom_cnn"
-        ).lower()
+        ).strip().lower()
 
         if model_key not in MODEL_BLOBS:
-            return func.HttpResponse(
-                json.dumps({
-                    "error": "Invalid model selection.",
-                    "available_models": list(MODEL_BLOBS.keys()),
-                }),
-                status_code=400,
-                mimetype="application/json",
-            )
+            return json_response({
+                "error": "Invalid model selection.",
+                "available_models": list(MODEL_BLOBS.keys()),
+            }, status_code=400)
+
+        # --------------------------------------------------
+        # 2. Read the uploaded image
+        # --------------------------------------------------
 
         image_bytes = req.get_body()
 
         if not image_bytes:
-            return func.HttpResponse(
-                json.dumps({
-                    "error": "No image was provided."
-                }),
-                status_code=400,
-                mimetype="application/json",
-            )
+            return json_response({
+                "error": "No image was provided.",
+            }, status_code=400)
 
-        # Open image and convert it to RGB.
+        # --------------------------------------------------
+        # 3. Decode and preprocess the image
+        # --------------------------------------------------
+
         try:
             with Image.open(BytesIO(image_bytes)) as source:
                 image = source.convert("RGB")
@@ -168,56 +237,80 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
                 )
 
         except (UnidentifiedImageError, OSError):
-            return func.HttpResponse(
-                json.dumps({
-                    "error": "The uploaded file is not a valid image."
-                }),
-                status_code=400,
-                mimetype="application/json",
-            )
+            return json_response({
+                "error": "The uploaded file is not a valid image.",
+            }, status_code=400)
 
-        # Models contain their own preprocessing layers.
-        # Do not divide by 255 or apply preprocess_input here.
-        input_batch = np.expand_dims(image_array, axis=0)
+        # The model is assumed to contain its own preprocessing.
+        # Do not normalize or apply preprocess_input here unless
+        # required by the specific model's training pipeline.
+        input_batch = np.expand_dims(
+            image_array,
+            axis=0,
+        )
+
+        # --------------------------------------------------
+        # 4. Load the selected model
+        # --------------------------------------------------
 
         model = load_model(model_key)
+
+        # --------------------------------------------------
+        # 5. Perform prediction
+        # --------------------------------------------------
 
         prediction = model.predict(
             input_batch,
             verbose=0,
         )
 
-        score = float(np.asarray(prediction).reshape(-1)[0])
+        prediction_values = np.asarray(prediction).reshape(-1)
 
-        # The model was trained with binary labels:
-        # 0 = NORMAL, 1 = PNEUMONIA.
-        predicted_index = 1 if score >= 0.5 else 0
+        if prediction_values.size != 1:
+            raise ValueError(
+                "Expected a single output value from the binary "
+                "classification model."
+            )
+
+        score = float(prediction_values[0])
+
+        if not np.isfinite(score) or not 0.0 <= score <= 1.0:
+            raise ValueError(
+                "The model returned an invalid probability score."
+            )
+
+        # Assumes model output is the probability of PNEUMONIA,
+        # with 0 = NORMAL and 1 = PNEUMONIA.
+        predicted_index = (
+            1 if score >= PREDICTION_THRESHOLD else 0
+        )
+
         predicted_class = CLASS_NAMES[predicted_index]
 
-        return func.HttpResponse(
-            json.dumps({
-                "status": "success",
-                "model": model_key,
-                "prediction": predicted_class,
-                "pneumonia_score": round(score, 6),
-                "threshold": 0.5,
-                "image_size": "224x224",
-                "notice": (
-                    "Educational research output only. "
-                    "Not intended for clinical diagnosis."
-                ),
-            }),
-            status_code=200,
-            mimetype="application/json",
-        )
+        # --------------------------------------------------
+        # 6. Return the prediction
+        # --------------------------------------------------
+
+        return json_response({
+            "status": "success",
+            "model": model_key,
+            "prediction": predicted_class,
+            "pneumonia_score": round(score, 6),
+            "threshold": PREDICTION_THRESHOLD,
+            "image_size": "224x224",
+            "notice": (
+                "Educational research output only. "
+                "Not intended for clinical diagnosis."
+            ),
+        })
 
     except Exception:
-        logging.exception("Prediction request failed.")
-
-        return func.HttpResponse(
-            json.dumps({
-                "error": "Prediction failed. Check the Function App logs."
-            }),
-            status_code=500,
-            mimetype="application/json",
+        logging.exception(
+            "Prediction request failed."
         )
+
+        return json_response({
+            "error": (
+                "Prediction failed. Check the Function App logs."
+            ),
+        }, status_code=500)
