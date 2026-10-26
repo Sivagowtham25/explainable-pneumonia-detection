@@ -20,11 +20,11 @@ app = func.FunctionApp(
 # Configuration
 # --------------------------------------------------
 
-STORAGE_ACCOUNT = os.environ["rgpneumoscan8401"]
-MODEL_CONTAINER = os.environ["models"]
+STORAGE_ACCOUNT = os.environ["AZURE_STORAGE_ACCOUNT"]
+MODEL_CONTAINER = os.environ["MODEL_CONTAINER"]
 
-CUSTOM_CNN_BLOB = os.environ["baseline_cnn_best.keras"]
-MOBILENET_BLOB = os.environ["mobilenetv2_transfer_best.keras"]
+CUSTOM_CNN_BLOB = os.environ["CUSTOM_CNN_BLOB"]
+MOBILENET_BLOB = os.environ["MOBILENET_BLOB"]
 
 MODEL_BLOBS = {
     "custom_cnn": CUSTOM_CNN_BLOB,
