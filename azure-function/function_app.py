@@ -1,4 +1,3 @@
-```python
 import json
 import logging
 import os
@@ -222,4 +221,3 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
             status_code=500,
             mimetype="application/json",
         )
-```
