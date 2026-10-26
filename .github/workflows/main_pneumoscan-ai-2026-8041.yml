@@ -54,3 +54,5 @@ jobs:
         with:
           app-name: pneumoscan-ai-2026-8041
           package: azure-function
+          remote-build: true
+
