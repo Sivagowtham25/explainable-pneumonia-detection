@@ -1,0 +1,11 @@
+.git/
+.github/
+.vscode/
+**pycache**/
+*.pyc
+.env
+.venv/
+venv/
+notebooks/
+dataset/
+frontend/node_modules/
