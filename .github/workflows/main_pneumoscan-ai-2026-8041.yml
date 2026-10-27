@@ -53,6 +53,6 @@ jobs:
         uses: Azure/functions-action@v1
         with:
           app-name: pneumoscan-ai-2026-8041
-          package: azure-function
+          package: ./azure-function
           remote-build: true
 
