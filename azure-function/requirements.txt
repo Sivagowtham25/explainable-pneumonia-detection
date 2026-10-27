@@ -1,6 +1,7 @@
 azure-functions
 azure-identity
 azure-storage-blob
-tensorflow
+tensorflow==2.19.1
+protobuf==5.29.6
 numpy
 Pillow
