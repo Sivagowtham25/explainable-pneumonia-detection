@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import tempfile
 from io import BytesIO
 
 import azure.functions as func
@@ -122,10 +123,21 @@ def load_model(model_key: str):
 
         model_bytes = blob_client.download_blob().readall()
 
-        model = tf.keras.models.load_model(
-            BytesIO(model_bytes),
-            compile=False,
-        )
+        # Keras 3 expects a filesystem path for .keras archives; it no
+        # longer accepts a BytesIO object in load_model().
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_path = os.path.join(
+                temp_dir,
+                os.path.basename(blob_name),
+            )
+
+            with open(model_path, "wb") as model_file:
+                model_file.write(model_bytes)
+
+            model = tf.keras.models.load_model(
+                model_path,
+                compile=False,
+            )
 
         _loaded_models[model_key] = model
 
